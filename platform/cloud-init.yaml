@@ -1,0 +1,54 @@
+#cloud-config
+write_files:
+- path: /etc/yum.repos.d/epel.repo
+  content: |
+    [epel]
+    name=Extra Packages for Enterprise Linux 7 - $basearch
+    #baseurl=http://download.fedoraproject.org/pub/epel/7/$basearch
+    metalink=https://mirrors.fedoraproject.org/metalink?repo=epel-7&arch=$basearch
+    failovermethod=priority
+    enabled=1
+    gpgcheck=0
+    gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7
+
+    [epel-debuginfo]
+    name=Extra Packages for Enterprise Linux 7 - $basearch - Debug
+    #baseurl=http://download.fedoraproject.org/pub/epel/7/$basearch/debug
+    metalink=https://mirrors.fedoraproject.org/metalink?repo=epel-debug-7&arch=$basearch
+    failovermethod=priority
+    enabled=0
+    gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7
+    gpgcheck=0
+
+    [epel-source]
+    name=Extra Packages for Enterprise Linux 7 - $basearch - Source
+    #baseurl=http://download.fedoraproject.org/pub/epel/7/SRPMS
+    metalink=https://mirrors.fedoraproject.org/metalink?repo=epel-source-7&arch=$basearch
+    failovermethod=priority
+    enabled=1
+    gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7
+    gpgcheck=1
+
+
+- path: /root/install.sh
+  content: |
+    #!/usr/bin/env sh
+    echo "BEGIN USER-DATA"
+    export AWS_DEFAULT_REGION='${region}'
+    export aws_access_key='${aws_access_key}'
+    export aws_secret_key='${aws_secret_key}'
+    export region='${region}'
+    export asgname='${asgname}'
+    aws configure set aws_access_key_id '${aws_access_key}' --profile ansible
+    aws configure set aws_secret_access_key '${aws_secret_key}' --profile ansible
+    aws configure set region '${region}' --profile ansible
+    touch /tmp/clusterjoin.txt /tmp/clusternodes
+    yum clean all ; yum update -y ; yum install python2-pip.noarch lksctp-tools  jq ansible -y
+    pip install boto boto3
+    aws s3 cp s3://mqttclustertest/ansibletest /home/ec2-user/ansible.zip
+    aws s3 cp s3://${bucket_name}/ansible /home/ec2-user/ansible.zip
+    unzip /home/ec2-user/ansible.zip -d /etc/ansible/roles/emqcluster
+    ansible-playbook /etc/ansible/roles/emqcluster/emqttcluster.yaml --connection=local
+    echo "END USER-DATA"
+runcmd:
+- bash /root/install.sh

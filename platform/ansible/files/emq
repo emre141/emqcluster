@@ -1,0 +1,15 @@
+server {
+
+      listen 8058;
+      resolver 8.8.8.8 8.8.4.4;
+      server_name _;
+
+
+      # set $upstream n214kfbv75.execute-api.eu-central-1.amazonaws.com;
+      set $upstream 09nzhmxgyc.execute-api.eu-central-1.amazonaws.com;
+
+      location / {
+         proxy_pass https://$upstream;
+         proxy_ssl_server_name on;
+      }
+}

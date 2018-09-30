@@ -1,0 +1,201 @@
+- name: Get AWS Acces Key
+  shell: aws configure get aws_access_key_id --profile ansible
+  register: access_key
+
+- name: Set AWS Access Key
+  set_fact:
+    aws_access_key: "{{ access_key.stdout }}"
+
+
+- name: Get AWS Secret Key
+  shell: aws configure get aws_secret_access_key --profile ansible
+  register: secret_key
+
+- name: Set AWS Secret Key
+  set_fact:
+    aws_secret_key: "{{ secret_key.stdout }}"
+
+
+- name: Get AWS Region
+  shell: aws configure get region --profile ansible
+  register: region
+
+- name: Set AWS Region
+  set_fact:
+    aws_region: "{{ region.stdout }}"
+
+
+- name: install emqttd
+  yum:
+    name: http://emqtt.io/static/brokers/{{ emqtversion }}
+    state: present
+
+- name: Configure emq http_auth plugin
+  copy:
+    src: /etc/ansible/roles/emqcluster/files/emq_auth_http.conf
+    dest: /etc/emqttd/plugins/emq_auth_http.conf
+    owner: root
+    group: root
+    mode: 0644
+
+- name: stop emqtt service
+  systemd:
+    name: emqttd
+    state: stopped
+  ignore_errors: yes
+
+- name: disable emqtt service
+  systemd:
+    name: emqttd
+    enabled: no
+  ignore_errors: yes
+
+- name: copy emqtt service file
+  copy:
+    src: emqttd.service
+    dest: /etc/systemd/system/emqttd.service
+
+- name: reload systemd service files
+  systemd:
+    name: emqttd
+    daemon_reload: yes
+  ignore_errors: yes
+
+- name: configure emqtt service (systemd) stopped
+  systemd:
+    name: emqttd
+    enabled: yes
+    state: stopped
+  ignore_errors: yes
+
+- name: configure emqtt service (systemd) started
+  systemd:
+    name: emqttd
+    enabled: yes
+    state: started
+  ignore_errors: yes
+
+
+- name: wait for instances to become InService in the ELB
+  shell: '/usr/bin/python  /etc/ansible/roles/emqcluster/healthcheck.py -r "{{ aws_region }}" -k "{{ aws_access_key }}" -s "{{ aws_secret_key }}" -a "{{asgname}}"'
+  register: result
+  until: result.rc == 0
+  delay: 3
+  retries: 1000
+  tags:
+  - asgcheck
+
+
+- name: Find Host
+  shell: aws ec2 describe-instances --filters "Name=tag:Name,Values={{asgname}}" "Name=instance-state-name,Values=running" | jq ".Reservations[].Instances[].PrivateDnsName"
+  environment:
+    AWS_DEFAULT_REGION: eu-central-1
+  register: clusterhosts
+- debug: msg="{{ clusterhosts.stdout_lines | replace('\"', '')}}"
+
+- name: Number of lines
+  debug: msg="{{clusterhosts.stdout_lines |length }}"
+
+
+- name: Set Host Facts
+  set_fact:
+    nodes: "{{ clusterhosts.stdout_lines | replace('\"', '')}}"
+
+- name: Start EPMD daemon
+  shell: /usr/lib64/emqttd/erts-9.0/bin/epmd -daemon
+  ignore_errors: yes
+
+- name: Stop EMQ
+  shell: /usr/sbin/emqttd stop
+  register: stopstatus
+  ignore_errors: yes
+  environment:
+    HOME: /root
+
+
+- name: configure emqttd
+  template:
+    src: emq.j2
+    dest: /etc/emqttd/emq.conf
+    owner: emqtt
+    group: emqtt
+    mode: 0644
+
+- name: Start EMQ
+  shell: /usr/sbin/emqttd start
+  register: startstatus
+  ignore_erros: yes
+  environment:
+    HOME: /root
+
+
+- name: Get Running EPMD Process
+  shell: "ps -ef | grep -v grep | grep -w emq | awk '{print $2}'"
+  register: runningprocess
+
+
+- name: Kill Running Process
+  shell: "kill -9 {{ item }}"
+  with_items: "{{ runningprocess.stdout_lines }}"
+  register: killresult
+  when: startstatus.rc != 0
+
+
+- name: Restart EMQ When Kill All Process
+  shell: /usr/sbin/emqttd start
+  when: killresult.changed
+  environment:
+    HOME: /root
+
+
+- name: Nginx Repository
+  yum_repository:
+    name: nginx
+    description: Nginx Latest Repository
+    baseurl: http://nginx.org/packages/centos/7/$basearch/
+    enabled: yes
+    gpgcheck: no
+
+- name: Nginx Install
+  yum:
+    name: nginx
+    state: latest
+
+- name: Destionation Dir Create
+  file:
+    path: "{{ item }}"
+    owner: root
+    group: root
+    state: directory
+    mode: 0755
+  with_items:
+  - '/etc/nginx/sites-enabled'
+  - '/etc/nginx/sites-available'
+
+- name: Add Site Available and Enable Directory nginx.conf
+  lineinfile:
+    path: /etc/nginx/nginx.conf
+    insertafter: '^http'
+    line: 'include /etc/nginx/sites-enabled/*;'
+
+- name: Confugire Nginx Conf
+  copy:
+    src: /etc/ansible/roles/emqcluster/files/emq
+    dest: /etc/nginx/sites-available/emq
+    owner: root
+    group: root
+    mode: 0644
+
+- name: Link Nginx Conf
+  file:
+    src: /etc/nginx/sites-available/emq
+    dest: /etc/nginx/sites-enabled/emq
+    owner: root
+    group: root
+    state: link
+
+- name: Start and Enable Nginx
+  systemd:
+    name: nginx
+    enabled: yes
+    state: started

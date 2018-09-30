@@ -1,0 +1,85 @@
+image: <docker_image_has_all_required_package>
+
+stages:
+- plan
+- apply
+- destroy
+
+.common: &common
+  before_script:
+  - export AWS_ACCOUNT_ID=`jq -r .${ENVIRONMENT}.account_id info.json`
+  - terraform --version
+  - terraform init --backend-config "bucket=tf-state-${AWS_ACCOUNT_ID}" --backend-config "key=${STATE_FILE}" --backend-config "region=${AWS_REGION}"
+  - terraform get
+  - terraform plan --var-file ${ENVIRONMENT}.tfvars
+  when: manual
+  tags:
+  - <runner_tag>
+
+
+
+.plan_common: &plan_common
+  <<: *common
+  stage: plan
+  script:
+  - echo "plan"
+
+.apply_common: &apply_common
+  <<: *common
+  script:
+  - terraform apply --var-file ${ENVIRONMENT}.tfvars
+  stage: apply
+
+.destroy_common: &destroy_common
+  <<: *common
+  script:
+  - terraform destroy --force --var-file ${ENVIRONMENT}.tfvars
+  stage: destroy
+
+
+
+dev_team7-plan:
+  <<: *plan_common
+  variables:
+    TF_VAR_aws_access_key: $DEV_ACCESS_KEY
+    TF_VAR_aws_secret_key: $DEV_SECRET_KEY
+    TF_VAR_emq_admin_password: $emq_admin_password
+    TF_VAR_emqtt_password: $emqtt_password
+    TF_VAR_emqtt_cookies:  $emqtt_cookies
+    AWS_ACCESS_KEY_ID: $DEV_ACCESS_KEY
+    AWS_SECRET_ACCESS_KEY: $DEV_SECRET_KEY
+    AWS_REGION: eu-central-1
+    ENVIRONMENT: dev_team7
+
+
+
+dev_team7-apply:
+  <<: *apply_common
+  variables:
+    TF_VAR_aws_access_key: $DEV_ACCESS_KEY
+    TF_VAR_aws_secret_key: $DEV_SECRET_KEY
+    TF_VAR_emq_admin_password: $emq_admin_password
+    TF_VAR_emqtt_password: $emqtt_password
+    TF_VAR_emqtt_cookies:  $emqtt_cookies
+    AWS_ACCESS_KEY_ID: $DEV_ACCESS_KEY
+    AWS_SECRET_ACCESS_KEY: $DEV_SECRET_KEY
+    AWS_REGION: eu-central-1
+    ENVIRONMENT: dev_team7
+
+
+
+
+dev_team7-destroy:
+  <<: *destroy_common
+  variables:
+    TF_VAR_aws_access_key: $DEV_ACCESS_KEY
+    TF_VAR_aws_secret_key: $DEV_SECRET_KEY
+    TF_VAR_emq_admin_password: $emq_admin_password
+    TF_VAR_emqtt_password: $emqtt_password
+    TF_VAR_emqtt_cookies:  $emqtt_cookies
+    AWS_ACCESS_KEY_ID: $DEV_ACCESS_KEY
+    AWS_SECRET_ACCESS_KEY: $DEV_SECRET_KEY
+    AWS_REGION: eu-central-1
+    ENVIRONMENT: dev_team7
+
+
